@@ -17,10 +17,12 @@ drvAsynSerialPortConfigure("serial1", "/dev/ttyS0", 0, 0, 0)
 #    num axes,
 #    moving poll period (ms),
 #    idle poll period (ms),
-#    ignore limit flag)
+#    ignore limit flag),
+#    mmc-eth card present
 ###
 #!MMC200CreateController("mmc200_1", "serial1", 2, 500, 2000, 1)
-MMC200CreateController("mmc200_1", "serial1", 2, 500, 0, 1)
+MMC200CreateController("mmc200_1", "serial1", 2, 500, 0, 1, 1)
+
 
 # Turn off asyn traces
 #!asynSetTraceIOMask("serial1",0,0x0)

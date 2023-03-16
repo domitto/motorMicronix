@@ -28,6 +28,8 @@ public:
   asynStatus poll(bool *moving);
   asynStatus setPosition(double position);
   asynStatus setClosedLoop(bool closedLoop);
+/*asynStatus writeReadController();
+  asynStatus writeReadController(const char *output, char *response, size_t maxResponseLen, size_t *responseLen, double timeout); */
 
 private:
   MMC200Controller *pC_;          /**< Pointer to the asynMotorController to which this axis belongs.
@@ -39,14 +41,17 @@ private:
   int microSteps_;   /* Units = microsteps per full step */
   double resolution_;   /* Units = mm per microstep */
   double maxVelocity_;  /* Units = mm per second */
-  asynStatus sendAccelAndVelocity(double accel, double velocity);
-  
+  int position;
+  asynStatus sendAccelAndVelocity(double accel, double velocity); 
+
+  int mmceth;
+ 
 friend class MMC200Controller;
 };
 
 class MMC200Controller : public asynMotorController {
 public:
-  MMC200Controller(const char *portName, const char *MMC200PortName, int numAxes, double movingPollPeriod, double idlePollPeriod, int ignoreLimits);
+  MMC200Controller(const char *portName, const char *MMC200PortName, int numAxes, double movingPollPeriod, double idlePollPeriod, int ignoreLimits, int mmceth);
 
   void report(FILE *fp, int level);
   MMC200Axis* getAxis(asynUser *pasynUser);

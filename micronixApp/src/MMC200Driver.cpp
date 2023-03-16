@@ -20,6 +20,7 @@ July 10, 2013
 
 #include "MMC200Driver.h"
 #include <epicsExport.h>
+#include <epicsTime.h>
 
 /** Creates a new MMC200Controller object.
   * \param[in] portName          The name of the asyn port that will be created for this driver
@@ -27,9 +28,11 @@ July 10, 2013
   * \param[in] numAxes           The number of axes that this controller supports 
   * \param[in] movingPollPeriod  The time between polls when any axis is moving 
   * \param[in] idlePollPeriod    The time between polls when no axis is moving 
+  * \param[in] mmceth            mmceth module is being used (ignore axis 0)
   */
 MMC200Controller::MMC200Controller(const char *portName, const char *MMC200PortName, int numAxes, 
-                                 double movingPollPeriod, double idlePollPeriod, int ignoreLimits)
+                                 double movingPollPeriod, double idlePollPeriod, int ignoreLimits,
+				 int mmceth)
   :  asynMotorController(portName, numAxes, NUM_MMC200_PARAMS, 
                          0, // No additional interfaces beyond those in base class
                          0, // No additional callback interfaces beyond those in base class
@@ -55,10 +58,14 @@ MMC200Controller::MMC200Controller(const char *portName, const char *MMC200PortN
       "%s: cannot connect to MMC-200 controller\n",
       functionName);
   }
-  for (axis=0; axis<numAxes; axis++) {
+  if(mmceth)
+    axis=1;
+  else
+    axis=0;
+  for (axis; axis<numAxes; axis++){
     pAxis = new MMC200Axis(this, axis);
   }
-
+//  printf("TEST in constructor \a\n");
   startPoller(movingPollPeriod, idlePollPeriod, 2);
 }
 
@@ -70,12 +77,13 @@ MMC200Controller::MMC200Controller(const char *portName, const char *MMC200PortN
   * \param[in] numAxes           The number of axes that this controller supports 
   * \param[in] movingPollPeriod  The time in ms between polls when any axis is moving
   * \param[in] idlePollPeriod    The time in ms between polls when no axis is moving 
+  * \param[in] mmceth            mmceth module is being used (ignore axis 0)
   */
 extern "C" int MMC200CreateController(const char *portName, const char *MMC200PortName, int numAxes, 
-                                   int movingPollPeriod, int idlePollPeriod, int ignoreLimits)
+                                   int movingPollPeriod, int idlePollPeriod, int ignoreLimits, int mmceth)
 {
   MMC200Controller *pMMC200Controller
-    = new MMC200Controller(portName, MMC200PortName, numAxes, movingPollPeriod/1000., idlePollPeriod/1000., ignoreLimits);
+    = new MMC200Controller(portName, MMC200PortName, numAxes, movingPollPeriod/1000., idlePollPeriod/1000., ignoreLimits, mmceth);
   pMMC200Controller = NULL;
   return(asynSuccess);
 }
@@ -159,10 +167,6 @@ MMC200Axis::MMC200Axis(MMC200Controller *pC, int axisNo)
     {
       model_ = 100;
     } 
-    else if (strncmp(pC_->inString_, "#MMC-103", 8) == 0)
-    {
-      model_ = 103;
-    } 
     else
     {
       asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, 
@@ -190,8 +194,8 @@ MMC200Axis::MMC200Axis(MMC200Controller *pC, int axisNo)
   // Read the number of microsteps
   if ( model_ == 200 )
   {
-    // The MMC-200 has a variable number of microsteps
-    sprintf(pC_->outString_, "%dUST?", axisIndex_);
+  // The MMC-200 has a variable number of microsteps
+    sprintf(pC_->outString_, "%dUST?", axisIndex_);   
     status = pC_->writeReadController();
     if (status != asynSuccess)
       errorFlag = 1;
@@ -246,6 +250,7 @@ void MMC200Axis::report(FILE *fp, int level)
     fprintf(fp, "  micro steps %d\n", microSteps_);
     fprintf(fp, "  resolution %f\n", resolution_);
     fprintf(fp, "  max velocity %f\n", maxVelocity_);
+    fprintf(fp, "  position %d\n", position);
   }
 
   // Call the base class method
@@ -281,7 +286,7 @@ asynStatus MMC200Axis::move(double position, int relative, double minVelocity, d
   // static const char *functionName = "MMC200Axis::move";
 
   status = sendAccelAndVelocity(acceleration, maxVelocity);
-  
+ 
   if (relative) {
     sprintf(pC_->outString_, "%dMVR%.6f", axisIndex_, position * resolution_);
   } else {
@@ -399,6 +404,8 @@ asynStatus MMC200Axis::poll(bool *moving)
   double pos;
   double enc;
   asynStatus comStatus;
+  epicsTimeStamp now;
+  char nowText[40];
 
   // Read the current motor position
   sprintf(pC_->outString_, "%dPOS?", axisIndex_);
@@ -449,9 +456,15 @@ asynStatus MMC200Axis::poll(bool *moving)
   
   //setIntegerParam(pC_->motorStatusAtHome_, limit);
 
-  // Clear error buffer 
+  // Clear error buffer after printing the error
   if (status & 0x80)
-  {
+  { 
+    epicsTimeGetCurrent(&now);  
+    epicsTimeToStrftime(nowText,sizeof(nowText),"%Y/%m/%d %H:%M:%S.%03f",&now);
+    sprintf(pC_->outString_, "%dERR?", axisIndex_);
+    comStatus = pC_->writeReadController();    
+    
+    printf("%s - Axis #%d error - %s\n", nowText, axisIndex_, pC_->inString_);
     sprintf(pC_->outString_, "%dCER", axisIndex_);
     status = pC_->writeController();
   }
@@ -480,16 +493,19 @@ static const iocshArg MMC200CreateControllerArg2 = {"Number of axes", iocshArgIn
 static const iocshArg MMC200CreateControllerArg3 = {"Moving poll period (ms)", iocshArgInt};
 static const iocshArg MMC200CreateControllerArg4 = {"Idle poll period (ms)", iocshArgInt};
 static const iocshArg MMC200CreateControllerArg5 = {"Ignore limit flag", iocshArgInt};
+static const iocshArg MMC200CreateControllerArg6 = {"MMCETH is present", iocshArgInt};
+
 static const iocshArg * const MMC200CreateControllerArgs[] = {&MMC200CreateControllerArg0,
                                                              &MMC200CreateControllerArg1,
                                                              &MMC200CreateControllerArg2,
                                                              &MMC200CreateControllerArg3,
                                                              &MMC200CreateControllerArg4,
-                                                             &MMC200CreateControllerArg5};
-static const iocshFuncDef MMC200CreateControllerDef = {"MMC200CreateController", 6, MMC200CreateControllerArgs};
+                                                             &MMC200CreateControllerArg5,
+                                                             &MMC200CreateControllerArg6};
+static const iocshFuncDef MMC200CreateControllerDef = {"MMC200CreateController", 7, MMC200CreateControllerArgs};
 static void MMC200CreateContollerCallFunc(const iocshArgBuf *args)
 {
-  MMC200CreateController(args[0].sval, args[1].sval, args[2].ival, args[3].ival, args[4].ival, args[5].ival);
+  MMC200CreateController(args[0].sval, args[1].sval, args[2].ival, args[3].ival, args[4].ival, args[5].ival, args[6].ival);
 }
 
 static void MMC200Register(void)
